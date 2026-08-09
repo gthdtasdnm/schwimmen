@@ -6,6 +6,9 @@
 import { darfRaumOeffnen, raumVermerkt } from "./bremse.js";
 import { cleanName, raumverwaltung, shuffle } from "./raum.js";
 import { starte } from "./statisch.js";
+// Blatt und Punkte liegen in einer eigenen Datei, damit `probe.js` dieselbe
+// Rechnung prüfen kann, die hier läuft – nicht eine nachgebaute daneben.
+import { auswertung, neuesDeck, punkteVon } from "./karten.js";
 
 const PORT = Number(Deno.env.get("PORT") ?? 8063);
 const HOST = Deno.env.get("HOST") ?? "0.0.0.0";
@@ -14,23 +17,7 @@ const PUBLIC = new URL("./public/", import.meta.url);
 const MAX_PLAYERS = 6;
 const MIN_PLAYERS = 2;
 
-const RAENGE = ["7", "8", "9", "10", "B", "D", "K", "A"];
-const FARBEN = ["♠", "♥", "♦", "♣"];
-const WERT = { "7": 7, "8": 8, "9": 9, "10": 10, "B": 10, "D": 10, "K": 10, "A": 11 };
 const AUFDECK_MS = 7000;
-
-const neuesDeck = () => shuffle(FARBEN.flatMap((f) => RAENGE.map((r) => ({ r, f }))));
-
-/** Punkte einer Hand: höchste Farbsumme, oder 30,5 für einen Drilling. */
-function punkteVon(hand) {
-  if (hand.length === 3 && hand.every((k) => k.r === hand[0].r)) return 30.5;
-  let best = 0;
-  for (const f of FARBEN) {
-    const s = hand.filter((k) => k.f === f).reduce((n, k) => n + WERT[k.r], 0);
-    if (s > best) best = s;
-  }
-  return best;
-}
 
 const {
   rooms, browsing,
@@ -131,17 +118,11 @@ function aufdecken(room) {
     const p = room.players.get(id);
     return { id, name: p.name, hand: [...p.hand], punkte: punkteVon(p.hand) };
   });
-  const feuer = stand.filter((s) => s.punkte === 31 || s.punkte === 30.5);
-  let verlierer;
-  if (feuer.length) {
-    // 31 oder Drilling: alle anderen verlieren ein Leben.
-    verlierer = stand.filter((s) => !feuer.includes(s));
-    room.meldung = `${feuer.map((f) => f.name).join(", ")} hat Feuer!`;
-  } else {
-    const min = Math.min(...stand.map((s) => s.punkte));
-    verlierer = stand.filter((s) => s.punkte === min);
-    room.meldung = `${verlierer.map((v) => v.name).join(", ")} hat am wenigsten.`;
-  }
+  // 31 oder Drilling ist Feuer: dann verlieren alle anderen ein Leben.
+  const { feuer, verlierer } = auswertung(stand);
+  room.meldung = feuer.length
+    ? `${feuer.map((f) => f.name).join(", ")} hat Feuer!`
+    : `${verlierer.map((v) => v.name).join(", ")} hat am wenigsten.`;
 
   const raus = [];
   for (const v of verlierer) {
